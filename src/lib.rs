@@ -16,7 +16,18 @@
 //!  - Others: TODO
 //!
 //! ## Getting Started
-//! ```rust
+//! ```rust, no_run
+//! # use lookit::Lookit;
+//!
+//! async fn run() {
+//!     let mut lookit = Lookit::with_input().expect("no /dev/ access?");
+//!
+//!     loop {
+//!         dbg!((&mut lookit).await);
+//!     }
+//! }
+//!
+//! pasts::block_on(run());
 //! ```
 //!
 //! ## Implementation
@@ -30,7 +41,7 @@
 //!
 //! MIDI
 //!  - inotify => /dev/snd/midi*, if no /dev/snd then /dev/midi*
-//!  - https://developer.mozilla.org/en-US/docs/Web/API/MIDIAccess
+//!  - <https://developer.mozilla.org/en-US/docs/Web/API/MIDIAccess>
 //!
 //! Camera
 //!  - inotify => /dev/video*
@@ -49,6 +60,7 @@ use std::sync::Once;
 use std::task::{Context, Poll};
 
 /// Lookit future.  Becomes ready when a new device is created.
+#[derive(Debug)]
 pub struct Lookit(Device<It>);
 
 impl Lookit {
@@ -107,50 +119,48 @@ impl Future for Lookit {
 }
 
 /// Device found by the Lookit struct.
+#[derive(Debug)]
 pub struct It(String);
 
 impl It {
     /// Open read and write non-blocking RawDevice
-    pub fn open_flags(self, flags: c_int) -> Option<RawDevice> {
+    fn open_flags(self, flags: c_int) -> Result<RawDevice, Self> {
         let filename = CString::new(self.0).unwrap();
         let fd = unsafe { open(filename.as_ptr(), flags) };
         if fd == -1 {
-            return None;
+            return Err(It(filename.into_string().unwrap()));
         }
-        Some(fd)
+        Ok(fd)
     }
 
     /// Open read and write non-blocking RawDevice
-    pub fn open(self) -> Option<RawDevice> {
+    pub fn open(self) -> Result<RawDevice, Self> {
         self.open_flags(0o2004002)
     }
 
     /// Open read-only non-blocking RawDevice
-    pub fn open_r(self) -> Option<RawDevice> {
+    pub fn open_r(self) -> Result<RawDevice, Self> {
         self.open_flags(0o2004000)
     }
 
     /// Open write-only non-blocking RawDevice
-    pub fn open_w(self) -> Option<RawDevice> {
+    pub fn open_w(self) -> Result<RawDevice, Self> {
         self.open_flags(0o2004001)
     }
 
     /// Open read and write non-blocking RawDevice
-    pub fn file_open(self) -> Option<File> {
-        self.open()
-            .map(|raw_fd| unsafe { File::from_raw_fd(raw_fd) })
+    pub fn file_open(self) -> Result<File, Self> {
+        self.open().map(|fd| unsafe { File::from_raw_fd(fd) })
     }
 
     /// Open read-only non-blocking RawDevice
-    pub fn file_open_r(self) -> Option<File> {
-        self.open_r()
-            .map(|raw_fd| unsafe { File::from_raw_fd(raw_fd) })
+    pub fn file_open_r(self) -> Result<File, Self> {
+        self.open_r().map(|fd| unsafe { File::from_raw_fd(fd) })
     }
 
     /// Open write-only non-blocking RawDevice
-    pub fn file_open_w(self) -> Option<File> {
-        self.open_w()
-            .map(|raw_fd| unsafe { File::from_raw_fd(raw_fd) })
+    pub fn file_open_w(self) -> Result<File, Self> {
+        self.open_w().map(|fd| unsafe { File::from_raw_fd(fd) })
     }
 }
 
@@ -199,7 +209,7 @@ impl Connector {
             self.listen,
             ev.as_mut_ptr().cast(),
             mem::size_of::<InotifyEv>(),
-        ) == mem::size_of::<InotifyEv>() as _
+        ) > 0
         {
             let ev = ev.assume_init();
             let len = strlen(&ev.name[0]);
