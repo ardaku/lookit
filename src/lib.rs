@@ -49,8 +49,7 @@
 use flume::Sender;
 use smelling_salts::linux::{Device, Driver, RawDevice, Watcher};
 use std::ffi::CString;
-use std::fs::File;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::future::Future;
 use std::mem::{self, MaybeUninit};
 use std::os::raw::{c_char, c_int, c_void};
@@ -83,7 +82,7 @@ impl Lookit {
                 listen,
                 path,
                 prefix,
-            },
+            }.start(),
             listen,
             Connector::callback,
             Watcher::new().input(),
@@ -217,6 +216,26 @@ struct Connector {
 }
 
 impl Connector {
+    fn start(self) -> Self {
+        if let Ok(read_dir) = std::fs::read_dir(self.path) {
+            for file in read_dir {
+                if let Ok(file) = file {
+                    let name = if let Ok(f) = file.file_name().into_string() {
+                        f
+                    } else {
+                        continue
+                    };
+                    if let Some(file) = file.path().to_str() {
+                        if name.starts_with(self.prefix) {
+                            let _ = self.sender.send(It(file.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+        self
+    }
+
     unsafe fn callback(&mut self) -> Option<()> {
         let mut ev = MaybeUninit::<InotifyEv>::zeroed();
         if read(
