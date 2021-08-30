@@ -50,17 +50,19 @@ use flume::Sender;
 use smelling_salts::linux::{Device, Driver, RawDevice, Watcher};
 use std::ffi::CString;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::future::Future;
 use std::mem::{self, MaybeUninit};
 use std::os::raw::{c_char, c_int, c_void};
-use std::os::unix::io::{FromRawFd, RawFd};
+use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
 use std::sync::Once;
 use std::task::{Context, Poll};
 
 /// Lookit future.  Becomes ready when a new device is created.
 #[derive(Debug)]
-pub struct Lookit(Device<It>);
+pub struct Lookit(Option<Device<It>>);
 
 impl Lookit {
     //
@@ -75,7 +77,7 @@ impl Lookit {
             return None;
         }
 
-        Some(Self(driver.device(
+        Some(Self(Some(driver.device(
             |sender| Connector {
                 sender,
                 listen,
@@ -85,27 +87,33 @@ impl Lookit {
             listen,
             Connector::callback,
             Watcher::new().input(),
-        )))
+        ))))
+    }
+
+    fn pending() -> Self {
+        Self(None)
     }
 
     /// Create new future checking for input devices.
-    pub fn with_input() -> Option<Self> {
-        Self::new("/dev/input/", "event")
+    pub fn with_input() -> Self {
+        Self::new("/dev/input/", "event").unwrap_or_else(Self::pending)
     }
 
     /// Create new future checking for audio devices (speakers, microphones).
-    pub fn with_audio() -> Option<Self> {
-        Self::new("/dev/snd/", "pcm")
+    pub fn with_audio() -> Self {
+        Self::new("/dev/snd/", "pcm").unwrap_or_else(Self::pending)
     }
 
     /// Create new future checking for MIDI devices.
-    pub fn with_midi() -> Option<Self> {
-        Self::new("/dev/snd/", "midi").or_else(|| Self::new("/dev/", "midi"))
+    pub fn with_midi() -> Self {
+        Self::new("/dev/snd/", "midi")
+            .or_else(|| Self::new("/dev/", "midi"))
+            .unwrap_or_else(Self::pending)
     }
 
     /// Create new future checking for camera devices.
-    pub fn with_camera() -> Option<Self> {
-        Self::new("/dev/", "video")
+    pub fn with_camera() -> Self {
+        Self::new("/dev/", "video").unwrap_or_else(Self::pending)
     }
 }
 
@@ -113,7 +121,11 @@ impl Future for Lookit {
     type Output = It;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.get_mut().0).poll(cx)
+        if let Some(ref mut device) = self.get_mut().0 {
+            Pin::new(device).poll(cx)
+        } else {
+            Poll::Pending
+        }
     }
 }
 
@@ -123,43 +135,47 @@ pub struct It(String);
 
 impl It {
     /// Open read and write non-blocking RawDevice
-    fn open_flags(self, flags: c_int) -> Result<RawDevice, Self> {
-        let filename = CString::new(self.0).unwrap();
-        let fd = unsafe { open(filename.as_ptr(), flags) };
-        if fd == -1 {
-            return Err(It(filename.into_string().unwrap()));
+    fn open_flags(self, read: bool, write: bool) -> Result<File, Self> {
+        if let Ok(file) = OpenOptions::new()
+            .read(read)
+            .write(write)
+            .custom_flags(2048)
+            .open(&self.0)
+        {
+            Ok(file)
+        } else {
+            Err(self)
         }
-        Ok(fd)
     }
 
     /// Open read and write non-blocking RawDevice
     pub fn open(self) -> Result<RawDevice, Self> {
-        self.open_flags(0o2004002)
+        self.file_open().map(|x| x.as_raw_fd())
     }
 
     /// Open read-only non-blocking RawDevice
     pub fn open_r(self) -> Result<RawDevice, Self> {
-        self.open_flags(0o2004000)
+        self.file_open_r().map(|x| x.as_raw_fd())
     }
 
     /// Open write-only non-blocking RawDevice
     pub fn open_w(self) -> Result<RawDevice, Self> {
-        self.open_flags(0o2004001)
+        self.file_open_w().map(|x| x.as_raw_fd())
     }
 
     /// Open read and write non-blocking File
     pub fn file_open(self) -> Result<File, Self> {
-        self.open().map(|fd| unsafe { File::from_raw_fd(fd) })
+        self.open_flags(true, true)
     }
 
     /// Open read-only non-blocking File
     pub fn file_open_r(self) -> Result<File, Self> {
-        self.open_r().map(|fd| unsafe { File::from_raw_fd(fd) })
+        self.open_flags(true, false)
     }
 
     /// Open write-only non-blocking File
     pub fn file_open_w(self) -> Result<File, Self> {
-        self.open_w().map(|fd| unsafe { File::from_raw_fd(fd) })
+        self.open_flags(false, true)
     }
 }
 
@@ -191,7 +207,6 @@ extern "C" {
     fn read(fd: RawFd, buf: *mut c_void, count: usize) -> isize;
     fn close(fd: RawFd) -> c_int;
     fn strlen(s: *const u8) -> usize;
-    fn open(pathname: *const c_char, flags: c_int) -> c_int;
 }
 
 struct Connector {
