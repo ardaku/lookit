@@ -253,6 +253,7 @@ impl Connector {
                     driver().discard(self.listen);
                     let ret = close(self.listen);
                     assert_eq!(0, ret);
+                    std::mem::drop(std::ptr::read(self));
                     return None;
                 }
             }
