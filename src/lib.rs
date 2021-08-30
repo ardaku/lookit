@@ -18,7 +18,6 @@
 //! ## Getting Started
 //! ```rust, no_run
 //! # use lookit::Lookit;
-//!
 //! async fn run() {
 //!     let mut lookit = Lookit::with_input().expect("no /dev/ access?");
 //!
@@ -148,17 +147,17 @@ impl It {
         self.open_flags(0o2004001)
     }
 
-    /// Open read and write non-blocking RawDevice
+    /// Open read and write non-blocking File
     pub fn file_open(self) -> Result<File, Self> {
         self.open().map(|fd| unsafe { File::from_raw_fd(fd) })
     }
 
-    /// Open read-only non-blocking RawDevice
+    /// Open read-only non-blocking File
     pub fn file_open_r(self) -> Result<File, Self> {
         self.open_r().map(|fd| unsafe { File::from_raw_fd(fd) })
     }
 
-    /// Open write-only non-blocking RawDevice
+    /// Open write-only non-blocking File
     pub fn file_open_w(self) -> Result<File, Self> {
         self.open_w().map(|fd| unsafe { File::from_raw_fd(fd) })
     }
