@@ -46,6 +46,22 @@
 //!  - inotify => /dev/video*
 //!  - navigator.mediaDevices.getUserMedia(constraints).then(function(s) { }).catch(function(denied_err) {})
 
+#![warn(
+    anonymous_parameters,
+    missing_copy_implementations,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    rust_2018_idioms,
+    single_use_lifetimes,
+    trivial_casts,
+    trivial_numeric_casts,
+    unreachable_pub,
+    unused_extern_crates,
+    unused_qualifications,
+    variant_size_differences
+)]
+
 use flume::Sender;
 use smelling_salts::linux::{Device, Driver, RawDevice, Watcher};
 use std::ffi::CString;
@@ -77,12 +93,15 @@ impl Lookit {
         }
 
         Some(Self(Some(driver.device(
-            |sender| Connector {
-                sender,
-                listen,
-                path,
-                prefix,
-            }.start(),
+            |sender| {
+                Connector {
+                    sender,
+                    listen,
+                    path,
+                    prefix,
+                }
+                .start()
+            },
             listen,
             Connector::callback,
             Watcher::new().input(),
@@ -218,17 +237,15 @@ struct Connector {
 impl Connector {
     fn start(self) -> Self {
         if let Ok(read_dir) = std::fs::read_dir(self.path) {
-            for file in read_dir {
-                if let Ok(file) = file {
-                    let name = if let Ok(f) = file.file_name().into_string() {
-                        f
-                    } else {
-                        continue
-                    };
-                    if let Some(file) = file.path().to_str() {
-                        if name.starts_with(self.prefix) {
-                            let _ = self.sender.send(It(file.to_string()));
-                        }
+            for file in read_dir.flatten() {
+                let name = if let Ok(f) = file.file_name().into_string() {
+                    f
+                } else {
+                    continue;
+                };
+                if let Some(file) = file.path().to_str() {
+                    if name.starts_with(self.prefix) {
+                        let _ = self.sender.send(It(file.to_string()));
                     }
                 }
             }
@@ -253,7 +270,7 @@ impl Connector {
                     driver().discard(self.listen);
                     let ret = close(self.listen);
                     assert_eq!(0, ret);
-                    std::mem::drop(std::ptr::read(self));
+                    drop(std::ptr::read(self));
                     return None;
                 }
             }
