@@ -9,7 +9,7 @@
 // modified, or distributed except according to those terms.
 //
 //! The "Lookit!" crate checks for new devices in a cross-platform asynchronous
-//! manner.  Returns the smelling_salts `RawDevice` for the target platform.
+//! manner.  Returns the `RawFd` equivalent for the target platform.
 //!
 //!  - Linux: inotify on /dev/*
 //!  - Web: JavaScript event listeners
@@ -62,28 +62,24 @@
     variant_size_differences
 )]
 
-use flume::Sender;
-use smelling_salts::linux::{Device, Driver, RawDevice, Watcher};
+use smelling_salts::linux::{Device, Watcher};
 use std::ffi::CString;
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, ReadDir};
 use std::future::Future;
 use std::mem::{self, MaybeUninit};
 use std::os::raw::{c_char, c_int, c_void};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
-use std::sync::Once;
 use std::task::{Context, Poll};
 
 /// Lookit future.  Becomes ready when a new device is created.
 #[derive(Debug)]
-pub struct Lookit(Option<Device<It>>);
+pub struct Lookit(Option<(Device, Connector)>);
 
 impl Lookit {
     //
     fn new(path: &'static str, prefix: &'static str) -> Option<Self> {
-        let driver = driver();
-
         let listen = unsafe { inotify_init1(0o2004000) };
         assert_ne!(-1, listen); // The only way this fails is some kind of OOM
 
@@ -92,19 +88,17 @@ impl Lookit {
             return None;
         }
 
-        Some(Self(Some(driver.device(
-            |sender| {
-                Connector {
-                    sender,
-                    listen,
-                    path,
-                    prefix,
-                }
-                .start()
-            },
+        let read_dir = std::fs::read_dir(path);
+        let connector = Connector {
             listen,
-            Connector::callback,
-            Watcher::new().input(),
+            path,
+            prefix,
+            read_dir,
+        };
+
+        Some(Self(Some((
+            Device::new(listen, Watcher::new().input(), true),
+            connector,
         ))))
     }
 
@@ -140,10 +134,49 @@ impl Future for Lookit {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if let Some(ref mut device) = self.get_mut().0 {
-            Pin::new(device).poll(cx)
-        } else {
-            Poll::Pending
+            // Check initial device iterator.
+            if let Ok(ref mut read_dir) = device.1.read_dir {
+                for file in read_dir.flatten() {
+                    let name = if let Ok(f) = file.file_name().into_string() {
+                        f
+                    } else {
+                        continue;
+                    };
+                    if let Some(file) = file.path().to_str() {
+                        if name.starts_with(device.1.prefix) {
+                            return Poll::Ready(It(file.to_string()));
+                        }
+                    }
+                }
+                device.1.read_dir = std::io::Result::Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "",
+                ));
+            }
+
+            // Check for ready file descriptor.
+            let fd = device.1.listen;
+            if let Poll::Ready(()) = Pin::new(&mut device.0).poll(cx) {
+                let mut ev = MaybeUninit::<InotifyEv>::uninit();
+                if unsafe {
+                    read(
+                        fd,
+                        ev.as_mut_ptr().cast(),
+                        mem::size_of::<InotifyEv>(),
+                    )
+                } > 0
+                {
+                    let ev = unsafe { ev.assume_init() };
+                    let len = unsafe { strlen(&ev.name[0]) };
+                    let filename = String::from_utf8_lossy(&ev.name[..len]);
+                    if filename.starts_with(device.1.prefix) {
+                        let path = format!("{}{}", device.1.path, filename);
+                        return Poll::Ready(It(path));
+                    }
+                }
+            }
         }
+        Poll::Pending
     }
 }
 
@@ -152,7 +185,7 @@ impl Future for Lookit {
 pub struct It(String);
 
 impl It {
-    /// Open read and write non-blocking RawDevice
+    /// Open read and write non-blocking device
     fn open_flags(self, read: bool, write: bool) -> Result<File, Self> {
         if let Ok(file) = OpenOptions::new()
             .read(read)
@@ -166,18 +199,18 @@ impl It {
         }
     }
 
-    /// Open read and write non-blocking RawDevice
-    pub fn open(self) -> Result<RawDevice, Self> {
+    /// Open read and write non-blocking device
+    pub fn open(self) -> Result<RawFd, Self> {
         self.file_open().map(|x| x.as_raw_fd())
     }
 
-    /// Open read-only non-blocking RawDevice
-    pub fn open_r(self) -> Result<RawDevice, Self> {
+    /// Open read-only non-blocking device
+    pub fn open_r(self) -> Result<RawFd, Self> {
         self.file_open_r().map(|x| x.as_raw_fd())
     }
 
-    /// Open write-only non-blocking RawDevice
-    pub fn open_w(self) -> Result<RawDevice, Self> {
+    /// Open write-only non-blocking device
+    pub fn open_w(self) -> Result<RawFd, Self> {
         self.file_open_w().map(|x| x.as_raw_fd())
     }
 
@@ -199,15 +232,6 @@ impl It {
 
 // Inotify
 
-fn driver() -> &'static Driver {
-    static mut DRIVER: MaybeUninit<Driver> = MaybeUninit::uninit();
-    static ONCE: Once = Once::new();
-    unsafe {
-        ONCE.call_once(|| DRIVER = MaybeUninit::new(Driver::new()));
-        &*DRIVER.as_ptr()
-    }
-}
-
 #[repr(C)]
 struct InotifyEv {
     // struct inotify_event, from C.
@@ -223,58 +247,13 @@ extern "C" {
     fn inotify_init1(flags: c_int) -> RawFd;
     fn inotify_add_watch(fd: RawFd, path: *const c_char, mask: u32) -> c_int;
     fn read(fd: RawFd, buf: *mut c_void, count: usize) -> isize;
-    fn close(fd: RawFd) -> c_int;
     fn strlen(s: *const u8) -> usize;
 }
 
+#[derive(Debug)]
 struct Connector {
     path: &'static str,
     prefix: &'static str,
     listen: RawFd,
-    sender: Sender<It>,
-}
-
-impl Connector {
-    fn start(self) -> Self {
-        if let Ok(read_dir) = std::fs::read_dir(self.path) {
-            for file in read_dir.flatten() {
-                let name = if let Ok(f) = file.file_name().into_string() {
-                    f
-                } else {
-                    continue;
-                };
-                if let Some(file) = file.path().to_str() {
-                    if name.starts_with(self.prefix) {
-                        let _ = self.sender.send(It(file.to_string()));
-                    }
-                }
-            }
-        }
-        self
-    }
-
-    unsafe fn callback(&mut self) -> Option<()> {
-        let mut ev = MaybeUninit::<InotifyEv>::zeroed();
-        if read(
-            self.listen,
-            ev.as_mut_ptr().cast(),
-            mem::size_of::<InotifyEv>(),
-        ) > 0
-        {
-            let ev = ev.assume_init();
-            let len = strlen(&ev.name[0]);
-            let filename = String::from_utf8_lossy(&ev.name[..len]);
-            if filename.starts_with(self.prefix) {
-                let path = format!("{}{}", self.path, filename);
-                if self.sender.send(It(path)).is_err() {
-                    driver().discard(self.listen);
-                    let ret = close(self.listen);
-                    assert_eq!(0, ret);
-                    drop(std::ptr::read(self));
-                    return None;
-                }
-            }
-        }
-        Some(())
-    }
+    read_dir: std::io::Result<ReadDir>,
 }

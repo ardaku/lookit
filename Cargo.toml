@@ -24,12 +24,7 @@ readme = "README.md"
 
 # Use Smelling Salts on Linux
 [target.'cfg(target_os="linux")'.dependencies.smelling_salts]
-version = "0.5"
-
-[dependencies.flume]
-version = "0.10"
-default-features = false
-features = ["async"]
+version = "0.6"
 
 [dev-dependencies.pasts]
 version = "0.8"

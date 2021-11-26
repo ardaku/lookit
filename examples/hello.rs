@@ -2,7 +2,6 @@ use lookit::Lookit;
 
 async fn run() {
     let mut lookit = Lookit::with_input();
-
     loop {
         let file = (&mut lookit)
             .await
