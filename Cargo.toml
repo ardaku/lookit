@@ -24,7 +24,7 @@ readme = "README.md"
 
 # Use Smelling Salts on Linux
 [target.'cfg(target_os="linux")'.dependencies.smelling_salts]
-version = "0.6"
+version = "0.9"
 
 [dev-dependencies.pasts]
 version = "0.8"
