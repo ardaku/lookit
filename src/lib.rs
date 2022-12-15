@@ -1,4 +1,4 @@
-// Copyright © 2021 The Lookit Crate Developers
+// Copyright © 2021-2022 The Lookit Crate Developers
 //
 // Licensed under any of:
 // - Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
@@ -17,16 +17,7 @@
 //!
 //! ## Getting Started
 //! ```rust, no_run
-//! # use lookit::Lookit;
-//! async fn run() {
-//!     let mut lookit = Lookit::with_input().expect("no /dev/ access?");
-//!
-//!     loop {
-//!         dbg!((&mut lookit).await);
-//!     }
-//! }
-//!
-//! pasts::block_on(run());
+#![doc = include_str!("../examples/hello.rs")]
 //! ```
 //!
 //! ## Implementation
