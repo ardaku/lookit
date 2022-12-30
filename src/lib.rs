@@ -19,7 +19,7 @@
 //! ```rust, no_run
 #![doc = include_str!("../examples/hello.rs")]
 //! ```
-//!
+//! 
 //! ## Implementation
 //! Input
 //!  - inotify => /dev/input/event*
@@ -53,16 +53,23 @@
     variant_size_differences
 )]
 
+use std::{
+    ffi::CString,
+    fs::{File, OpenOptions, ReadDir},
+    future::Future,
+    mem::{self, MaybeUninit},
+    os::{
+        raw::{c_char, c_int, c_void},
+        unix::{
+            fs::OpenOptionsExt,
+            io::{AsRawFd, RawFd},
+        },
+    },
+    pin::Pin,
+    task::{Context, Poll},
+};
+
 use smelling_salts::linux::{Device, Watcher};
-use std::ffi::CString;
-use std::fs::{File, OpenOptions, ReadDir};
-use std::future::Future;
-use std::mem::{self, MaybeUninit};
-use std::os::raw::{c_char, c_int, c_void};
-use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::io::{AsRawFd, RawFd};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 /// Lookit future.  Becomes ready when a new device is created.
 #[derive(Debug)]
