@@ -1,7 +1,8 @@
 use lookit::Lookit;
+use pasts::prelude::*;
 
 async fn run() {
-    let mut lookit = Lookit::with_input();
+    let mut lookit = Lookit::with_camera();
     loop {
         let file = (&mut lookit)
             .await
@@ -14,5 +15,5 @@ async fn run() {
 }
 
 fn main() {
-    pasts::block_on(run());
+    Executor::default().spawn(run());
 }

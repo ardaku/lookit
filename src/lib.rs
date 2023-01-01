@@ -1,4 +1,4 @@
-// Copyright © 2021-2022 The Lookit Crate Developers
+// Copyright © 2021-2023 The Lookit Crate Developers
 //
 // Licensed under any of:
 // - Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
@@ -69,11 +69,12 @@ use std::{
     task::{Context, Poll},
 };
 
-use smelling_salts::linux::{Device, Watcher};
+use pasts::prelude::*;
+use smelling_salts::epoll::Device;
 
 /// Lookit future.  Becomes ready when a new device is created.
 #[derive(Debug)]
-pub struct Lookit(Option<(Device, Connector)>);
+pub struct Lookit(Option<Connector>);
 
 impl Lookit {
     //
@@ -87,17 +88,15 @@ impl Lookit {
         }
 
         let read_dir = std::fs::read_dir(path);
+        let device = Device::builder().input().watch(listen);
         let connector = Connector {
-            listen,
+            device,
             path,
             prefix,
             read_dir,
         };
 
-        Some(Self(Some((
-            Device::new(listen, Watcher::new().input(), true),
-            connector,
-        ))))
+        Some(Self(Some(connector)))
     }
 
     fn pending() -> Self {
@@ -133,7 +132,7 @@ impl Future for Lookit {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if let Some(ref mut device) = self.get_mut().0 {
             // Check initial device iterator.
-            if let Ok(ref mut read_dir) = device.1.read_dir {
+            if let Ok(ref mut read_dir) = device.read_dir {
                 for file in read_dir.flatten() {
                     let name = if let Ok(f) = file.file_name().into_string() {
                         f
@@ -141,20 +140,20 @@ impl Future for Lookit {
                         continue;
                     };
                     if let Some(file) = file.path().to_str() {
-                        if name.starts_with(device.1.prefix) {
-                            return Poll::Ready(It(file.to_string()));
+                        if name.starts_with(device.prefix) {
+                            return Ready(It(file.to_string()));
                         }
                     }
                 }
-                device.1.read_dir = std::io::Result::Err(std::io::Error::new(
+                device.read_dir = std::io::Result::Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "",
                 ));
             }
 
             // Check for ready file descriptor.
-            let fd = device.1.listen;
-            if let Poll::Ready(()) = Pin::new(&mut device.0).poll(cx) {
+            let fd = device.device.fd();
+            if let Ready(()) = Pin::new(&mut device.device).poll_next(cx) {
                 let mut ev = MaybeUninit::<InotifyEv>::uninit();
                 if unsafe {
                     read(
@@ -167,14 +166,14 @@ impl Future for Lookit {
                     let ev = unsafe { ev.assume_init() };
                     let len = unsafe { strlen(&ev.name[0]) };
                     let filename = String::from_utf8_lossy(&ev.name[..len]);
-                    if filename.starts_with(device.1.prefix) {
-                        let path = format!("{}{}", device.1.path, filename);
-                        return Poll::Ready(It(path));
+                    if filename.starts_with(device.prefix) {
+                        let path = format!("{}{}", device.path, filename);
+                        return Ready(It(path));
                     }
                 }
             }
         }
-        Poll::Pending
+        Pending
     }
 }
 
@@ -252,6 +251,6 @@ extern "C" {
 struct Connector {
     path: &'static str,
     prefix: &'static str,
-    listen: RawFd,
+    device: Device,
     read_dir: std::io::Result<ReadDir>,
 }
