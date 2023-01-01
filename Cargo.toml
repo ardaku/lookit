@@ -30,3 +30,6 @@ version = "0.12"
 [target.'cfg(target_os="linux")'.dependencies.smelling_salts]
 version = "0.9"
 features = ["epoll"]
+
+# [patch.crates-io]
+# pasts = { path = "../pasts" }

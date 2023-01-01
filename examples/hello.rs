@@ -1,10 +1,11 @@
-use lookit::Lookit;
+use lookit::Searcher;
 use pasts::prelude::*;
 
 async fn run() {
-    let mut lookit = Lookit::with_camera();
+    let mut searcher = Searcher::with_camera();
     loop {
-        let file = (&mut lookit)
+        let file = searcher
+            .next()
             .await
             .file_open()
             .or_else(|it| it.file_open_r())
