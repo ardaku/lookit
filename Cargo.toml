@@ -24,11 +24,11 @@ keywords = ["async", "cross-platform", "device"]
 readme = "README.md"
 
 [dependencies.pasts]
-version = "0.12"
+version = "0.13"
 
 # Use Smelling Salts on Linux
 [target.'cfg(target_os="linux")'.dependencies.smelling_salts]
-version = "0.9"
+version = "0.10"
 features = ["epoll"]
 
 # [patch.crates-io]

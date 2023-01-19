@@ -129,7 +129,7 @@ impl Searcher {
 impl Notifier for Searcher {
     type Event = Found;
 
-    fn poll_next(self: Pin<&mut Self>, exec: &mut Exec<'_>) -> Poll<Found> {
+    fn poll_next(self: Pin<&mut Self>, task: &mut Task<'_>) -> Poll<Found> {
         let searcher = self.get_mut();
 
         // Check initial device iterator.
@@ -155,7 +155,7 @@ impl Notifier for Searcher {
         // Check for ready file descriptor.
         let fd = searcher.device.fd();
 
-        if let Ready(()) = Pin::new(&mut searcher.device).poll_next(exec) {
+        if let Ready(()) = Pin::new(&mut searcher.device).poll_next(task) {
             let mut ev = MaybeUninit::<InotifyEv>::uninit();
             if unsafe {
                 read(fd, ev.as_mut_ptr().cast(), mem::size_of::<InotifyEv>())

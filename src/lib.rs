@@ -114,10 +114,10 @@ impl Searcher {
 impl Notifier for Searcher {
     type Event = Found;
 
-    fn poll_next(mut self: Pin<&mut Self>, exec: &mut Exec<'_>) -> Poll<Found> {
+    fn poll_next(mut self: Pin<&mut Self>, task: &mut Task<'_>) -> Poll<Found> {
         let Some(ref mut notifier) = &mut self.0 else { return Pending };
 
-        Pin::new(notifier).poll_next(exec)
+        Pin::new(notifier).poll_next(task)
     }
 }
 
