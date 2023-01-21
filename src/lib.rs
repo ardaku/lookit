@@ -17,9 +17,19 @@
 //!
 //! ## Getting Started
 //! ```rust, no_run
-#![doc = include_str!("../examples/hello.rs")]
+//! use lookit::Searcher;
+//! use pasts::prelude::*;
+//!
+//! #[async_main::async_main]
+//! async fn main(_spawner: impl Spawn) {
+//!     let mut searcher = Searcher::with_camera();
+//!     loop {
+//!         let file = searcher.next().await;
+//!         dbg!(file);
+//!     }
+//! }
 //! ```
-//! 
+//!
 //! ## Implementation
 //! Input
 //!  - inotify => /dev/input/event*
@@ -27,7 +37,8 @@
 //!
 //! Audio
 //!  - inotify => /dev/snd/pcm*
-//!  - `navigator.mediaDevices.getUserMedia(constraints).then(function(s) { }).catch(function(denied_err) {})` // only one speakers connection ever
+//!  - `navigator.mediaDevices.getUserMedia(constraints).then(function(s) {
+//!    }).catch(function(denied_err) {})` // only one speakers connection ever
 //!
 //! MIDI
 //!  - inotify => /dev/snd/midi*, if no /dev/snd then /dev/midi*
@@ -35,7 +46,8 @@
 //!
 //! Camera
 //!  - inotify => /dev/video*
-//!  - `navigator.mediaDevices.getUserMedia(constraints).then(function(s) { }).catch(function(denied_err) {})`
+//!  - `navigator.mediaDevices.getUserMedia(constraints).then(function(s) {
+//!    }).catch(function(denied_err) {})`
 
 #![warn(
     anonymous_parameters,
