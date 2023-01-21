@@ -23,6 +23,10 @@ categories = ["asynchronous", "hardware-support", "multimedia", "os"]
 keywords = ["async", "cross-platform", "device"]
 readme = "README.md"
 
+[[example]]
+name = "hello"
+required-features = ["epoll"]
+
 [dependencies.pasts]
 version = "0.13"
 
