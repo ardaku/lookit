@@ -1,7 +1,8 @@
 use lookit::Searcher;
 use pasts::prelude::*;
 
-async fn run() {
+#[async_main::async_main]
+async fn main(_spawner: impl Spawn) {
     let mut searcher = Searcher::with_camera();
     loop {
         let file = searcher
@@ -13,8 +14,4 @@ async fn run() {
             .ok();
         dbg!(file);
     }
-}
-
-fn main() {
-    Executor::default().spawn(run());
 }

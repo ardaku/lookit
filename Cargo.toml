@@ -31,5 +31,9 @@ version = "0.13"
 version = "0.10"
 features = ["epoll"]
 
+[dev-dependencies.async_main]
+version = "0.2"
+features = ["pasts"]
+
 # [patch.crates-io]
 # pasts = { path = "../pasts" }
