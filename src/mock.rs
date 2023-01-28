@@ -12,10 +12,16 @@ use pasts::prelude::*;
 
 use crate::{Found, Interface, Kind, Platform};
 
+pub(super) struct Device;
+
 impl Interface for Platform {
     fn searcher(
         _kind: Kind,
     ) -> Option<Box<dyn Notifier<Event = Found> + Unpin>> {
         None
+    }
+
+    fn open(found: Found, _events: Events) -> Result<Device, Found> {
+        Err(found)
     }
 }

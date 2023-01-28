@@ -65,15 +65,15 @@
     variant_size_differences
 )]
 
-#[cfg(target_os = "linux")]
-mod linux;
-
-#[cfg(not(target_os = "linux"))]
-mod mock;
+#[cfg_attr(target_os = "linux", path = "linux.rs")]
+#[cfg_attr(not(target_os = "linux"), path = "mock.rs")]
+mod platform;
 
 use std::fmt;
 
 use pasts::prelude::*;
+
+use self::platform::Device;
 
 /// Device kinds
 enum Kind {
@@ -83,13 +83,23 @@ enum Kind {
     Camera(),
 }
 
+enum Events {
+    Read(),
+    Write(),
+    All(),
+}
+
 /// Platform implementation
 struct Platform;
 
 /// Interface should be implemented for each `Platform`
 trait Interface {
+    /// Create a searcher for a specific type of device
     fn searcher(kind: Kind)
         -> Option<Box<dyn Notifier<Event = Found> + Unpin>>;
+
+    /// Try to watch a found device for both read+write events
+    fn open(found: Found, events: Events) -> Result<Device, Found>;
 }
 
 /// Lookit [`Notifier`].  Lets you know when a device is [`Found`].
@@ -136,3 +146,20 @@ impl Notifier for Searcher {
 /// Device found by the [`Searcher`] notifier.
 #[derive(Debug)]
 pub struct Found(String);
+
+impl Found {
+    /// Connect to device (input + output)
+    pub fn connect(self) -> Result<Device, Found> {
+        Platform::open(self, Events::All())
+    }
+
+    /// Connect to device (input only)
+    pub fn connect_input(self) -> Result<Device, Found> {
+        Platform::open(self, Events::Read())
+    }
+
+    /// Connect to device (output only)
+    pub fn connect_output(self) -> Result<Device, Found> {
+        Platform::open(self, Events::Write())
+    }
+}

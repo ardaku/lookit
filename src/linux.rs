@@ -11,20 +11,19 @@
 use std::{
     ffi::CString,
     fs::{File, OpenOptions, ReadDir},
-    mem::{self, MaybeUninit},
+    io::Read,
+    mem,
     os::{
-        raw::{c_char, c_int, c_void},
-        unix::{
-            fs::OpenOptionsExt,
-            io::{AsRawFd, RawFd},
-        },
+        fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+        raw::{c_char, c_int},
+        unix::fs::OpenOptionsExt,
     },
 };
 
 use pasts::prelude::*;
-use smelling_salts::epoll::Device;
+pub(super) use smelling_salts::{Device, Watch};
 
-use crate::{Found, Interface, Kind, Platform};
+use crate::{Events, Found, Interface, Kind, Platform};
 
 impl Interface for Platform {
     fn searcher(
@@ -34,10 +33,21 @@ impl Interface for Platform {
             |x| -> Box<dyn Notifier<Event = Found> + Unpin> { Box::new(x) },
         )
     }
+
+    fn open(found: Found, events: Events) -> Result<Device, Found> {
+        use Events::*;
+        let device = match events {
+            Read() => Device::new(found.open_r()?, Watch::INPUT),
+            Write() => Device::new(found.open_w()?, Watch::OUTPUT),
+            All() => Device::new(found.open()?, Watch::INPUT.output()),
+        };
+
+        Ok(device)
+    }
 }
 
 impl Found {
-    /// **`linux only`** Open read and write non-blocking device
+    /// Open read and write non-blocking device
     fn open_flags(self, read: bool, write: bool) -> Result<File, Self> {
         if let Ok(file) = OpenOptions::new()
             .read(read)
@@ -51,34 +61,19 @@ impl Found {
         }
     }
 
-    /// **`linux only`** Open read and write non-blocking device
-    pub fn open(self) -> Result<RawFd, Self> {
-        self.file_open().map(|x| x.as_raw_fd())
+    /// Open read and write non-blocking
+    fn open(self) -> Result<OwnedFd, Self> {
+        self.open_flags(true, true).map(Into::into)
     }
 
-    /// **`linux only`** Open read-only non-blocking device
-    pub fn open_r(self) -> Result<RawFd, Self> {
-        self.file_open_r().map(|x| x.as_raw_fd())
+    /// Open read-only non-blocking
+    fn open_r(self) -> Result<OwnedFd, Self> {
+        self.open_flags(true, false).map(Into::into)
     }
 
-    /// **`linux only`** Open write-only non-blocking device
-    pub fn open_w(self) -> Result<RawFd, Self> {
-        self.file_open_w().map(|x| x.as_raw_fd())
-    }
-
-    /// **`linux only`** Open read and write non-blocking File
-    pub fn file_open(self) -> Result<File, Self> {
-        self.open_flags(true, true)
-    }
-
-    /// **`linux only`** Open read-only non-blocking File
-    pub fn file_open_r(self) -> Result<File, Self> {
-        self.open_flags(true, false)
-    }
-
-    /// **`linux only`** Open write-only non-blocking File
-    pub fn file_open_w(self) -> Result<File, Self> {
-        self.open_flags(false, true)
+    /// Open write-only non-blocking
+    fn open_w(self) -> Result<OwnedFd, Self> {
+        self.open_flags(false, true).map(Into::into)
     }
 }
 
@@ -107,14 +102,17 @@ impl Searcher {
     fn with(path: &'static str, prefix: &'static str) -> Option<Self> {
         let listen = unsafe { inotify_init1(0o2004000) };
         assert_ne!(-1, listen); // The only way this fails is some kind of OOM
+        let listen = unsafe { OwnedFd::from_raw_fd(listen) };
 
         let dir = CString::new(path).unwrap();
-        if unsafe { inotify_add_watch(listen, dir.into_raw(), 4) } == -1 {
+        if unsafe { inotify_add_watch(listen.as_raw_fd(), dir.into_raw(), 4) }
+            == -1
+        {
             return None;
         }
 
         let read_dir = std::fs::read_dir(path);
-        let device = Device::builder().input().watch(listen);
+        let device = Device::new(listen, Watch::INPUT);
         let connector = Self {
             device,
             path,
@@ -153,21 +151,33 @@ impl Notifier for Searcher {
         }
 
         // Check for ready file descriptor.
-        let fd = searcher.device.fd();
+        while let Ready(()) = Pin::new(&mut searcher.device).poll_next(task) {
+            let mut bytes = [0; mem::size_of::<InotifyEv>()];
 
-        if let Ready(()) = Pin::new(&mut searcher.device).poll_next(task) {
-            let mut ev = MaybeUninit::<InotifyEv>::uninit();
-            if unsafe {
-                read(fd, ev.as_mut_ptr().cast(), mem::size_of::<InotifyEv>())
-            } > 0
-            {
-                let ev = unsafe { ev.assume_init() };
-                let len = unsafe { strlen(&ev.name[0]) };
-                let filename = String::from_utf8_lossy(&ev.name[..len]);
-                if filename.starts_with(searcher.prefix) {
-                    let path = format!("{}{filename}", searcher.path);
-                    return Ready(Found(path));
-                }
+            if let Err(e) = searcher.device.read_exact(&mut bytes) {
+                dbg!(e);
+                continue;
+            }
+
+            let inotify_ev: InotifyEv = unsafe { mem::transmute(bytes) };
+            let len = inotify_ev.len.try_into().unwrap_or(usize::MAX);
+            let mut bytes = vec![0; len];
+
+            if let Err(e) = searcher.device.read_exact(bytes.as_mut_slice()) {
+                dbg!(e);
+                continue;
+            }
+
+            let bytes = bytes
+                .as_slice()
+                .split(|n| *n == b'\0')
+                .next()
+                .unwrap_or_default();
+            let filename = String::from_utf8_lossy(bytes);
+
+            if filename.starts_with(searcher.prefix) {
+                let path = format!("{}{filename}", searcher.path);
+                return Ready(Found(path));
             }
         }
 
@@ -177,20 +187,20 @@ impl Notifier for Searcher {
 
 // Inotify
 
+/// struct inotify_event, from C.
 #[repr(C)]
 struct InotifyEv {
-    // struct inotify_event, from C.
-    wd: c_int, /* Watch descriptor */
-    mask: u32, /* Mask describing event */
-    cookie: u32, /* Unique cookie associating related
-               events (for rename(2)) */
-    len: u32,        /* Size of name field */
-    name: [u8; 256], /* Optional null-terminated name */
+    /// Watch descriptor
+    wd: RawFd,
+    /// Mask describing event
+    mask: u32,
+    /// Unique cookie associating related events (for rename(2))
+    cookie: u32,
+    /// Size of following name field including null bytes
+    len: u32,
 }
 
 extern "C" {
     fn inotify_init1(flags: c_int) -> RawFd;
     fn inotify_add_watch(fd: RawFd, path: *const c_char, mask: u32) -> c_int;
-    fn read(fd: RawFd, buf: *mut c_void, count: usize) -> isize;
-    fn strlen(s: *const u8) -> usize;
 }

@@ -7,11 +7,12 @@ async fn main(_spawner: impl Spawn) {
     loop {
         let file = searcher.next().await;
 
-        #[cfg(target_os = "linux")]
+        dbg!(&file);
+
         let file = file
-            .file_open()
-            .or_else(|it| it.file_open_r())
-            .or_else(|it| it.file_open_w())
+            .connect()
+            .or_else(|it| it.connect_input())
+            .or_else(|it| it.connect_output())
             .ok();
 
         dbg!(file);
