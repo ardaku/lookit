@@ -35,7 +35,7 @@ Licensed under any of
    [https://www.boost.org/LICENSE_1_0.txt])
  - MIT License, ([LICENSE_MIT.txt] or [https://mit-license.org])
 
-at your option.  The files contained within this repository may not be copied,
+at your option.  The files associated with this project may not be copied,
 modified, or distributed except according to those terms. 
 
 ### Contribution
