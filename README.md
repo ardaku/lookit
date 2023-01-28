@@ -4,10 +4,10 @@
 
 [![tests](https://github.com/ardaku/lookit/actions/workflows/ci.yml/badge.svg)](https://github.com/ardaku/lookit/actions/workflows/ci.yml)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/y/ardaku/lookit)](https://github.com/ardaku/lookit/)
-[![GitHub contributors](https://img.shields.io/github/contributors/ardaku/lookit)](https://github.com/ardaku/lookit/graphs/contributors)
+[![GitHub contributors](https://img.shields.io/github/contributors/ardaku/lookit)](https://github.com/ardaku/lookit/graphs/contributors)  
 [![Crates.io](https://img.shields.io/crates/v/lookit)](https://crates.io/crates/lookit)
 [![Crates.io](https://img.shields.io/crates/d/lookit)](https://crates.io/crates/lookit)
-[![Crates.io (recent)](https://img.shields.io/crates/dr/lookit)](https://crates.io/crates/lookit)
+[![Crates.io (recent)](https://img.shields.io/crates/dr/lookit)](https://crates.io/crates/lookit)  
 [![Crates.io](https://img.shields.io/crates/l/lookit)](https://github.com/ardaku/lookit/search?l=Text&q=license)
 [![Docs.rs](https://docs.rs/lookit/badge.svg)](https://docs.rs/lookit)
 
