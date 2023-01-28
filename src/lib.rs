@@ -72,8 +72,7 @@ mod platform;
 use std::fmt;
 
 use pasts::prelude::*;
-
-use self::platform::Device;
+use smelling_salts::Device;
 
 /// Device kinds
 enum Kind {

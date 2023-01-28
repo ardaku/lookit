@@ -10,9 +10,7 @@
 
 use pasts::prelude::*;
 
-use crate::{Found, Interface, Kind, Platform};
-
-pub(super) struct Device;
+use crate::{Device, Events, Found, Interface, Kind, Platform};
 
 impl Interface for Platform {
     fn searcher(

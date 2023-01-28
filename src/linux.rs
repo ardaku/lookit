@@ -10,7 +10,7 @@
 
 use std::{
     ffi::CString,
-    fs::{File, OpenOptions, ReadDir},
+    fs::{OpenOptions, ReadDir},
     io::Read,
     mem,
     os::{
@@ -21,9 +21,31 @@ use std::{
 };
 
 use pasts::prelude::*;
-pub(super) use smelling_salts::{Device, Watch};
+use smelling_salts::Watch;
 
-use crate::{Events, Found, Interface, Kind, Platform};
+use crate::{Device, Events, Found, Interface, Kind, Platform};
+
+// Inotify
+
+/// struct inotify_event, from C.
+#[repr(C)]
+struct InotifyEv {
+    /// Watch descriptor
+    wd: RawFd,
+    /// Mask describing event
+    mask: u32,
+    /// Unique cookie associating related events (for rename(2))
+    cookie: u32,
+    /// Size of following name field including null bytes
+    len: u32,
+}
+
+extern "C" {
+    fn inotify_init1(flags: c_int) -> RawFd;
+    fn inotify_add_watch(fd: RawFd, path: *const c_char, mask: u32) -> c_int;
+}
+
+// Lookit interface
 
 impl Interface for Platform {
     fn searcher(
@@ -48,14 +70,14 @@ impl Interface for Platform {
 
 impl Found {
     /// Open read and write non-blocking device
-    fn open_flags(self, read: bool, write: bool) -> Result<File, Self> {
+    fn open_flags(self, read: bool, write: bool) -> Result<OwnedFd, Self> {
         if let Ok(file) = OpenOptions::new()
             .read(read)
             .write(write)
             .custom_flags(2048)
             .open(&self.0)
         {
-            Ok(file)
+            Ok(file.into())
         } else {
             Err(self)
         }
@@ -63,17 +85,17 @@ impl Found {
 
     /// Open read and write non-blocking
     fn open(self) -> Result<OwnedFd, Self> {
-        self.open_flags(true, true).map(Into::into)
+        self.open_flags(true, true)
     }
 
     /// Open read-only non-blocking
     fn open_r(self) -> Result<OwnedFd, Self> {
-        self.open_flags(true, false).map(Into::into)
+        self.open_flags(true, false)
     }
 
     /// Open write-only non-blocking
     fn open_w(self) -> Result<OwnedFd, Self> {
-        self.open_flags(false, true).map(Into::into)
+        self.open_flags(false, true)
     }
 }
 
@@ -183,24 +205,4 @@ impl Notifier for Searcher {
 
         Pending
     }
-}
-
-// Inotify
-
-/// struct inotify_event, from C.
-#[repr(C)]
-struct InotifyEv {
-    /// Watch descriptor
-    wd: RawFd,
-    /// Mask describing event
-    mask: u32,
-    /// Unique cookie associating related events (for rename(2))
-    cookie: u32,
-    /// Size of following name field including null bytes
-    len: u32,
-}
-
-extern "C" {
-    fn inotify_init1(flags: c_int) -> RawFd;
-    fn inotify_add_watch(fd: RawFd, path: *const c_char, mask: u32) -> c_int;
 }
