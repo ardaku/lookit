@@ -3,9 +3,9 @@ use pasts::prelude::*;
 use crate::{Device, Events, Found, Interface, Kind, Platform};
 
 impl Interface for Platform {
-    fn searcher(
-        _kind: Kind,
-    ) -> Option<Box<dyn Notifier<Event = Found> + Unpin>> {
+    type Searcher = BoxNotifier<'static, Found>;
+
+    fn searcher(_kind: Kind) -> Option<BoxNotifier<'static, Found>> {
         None
     }
 

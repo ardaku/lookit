@@ -38,12 +38,10 @@ extern "C" {
 // Lookit interface
 
 impl Interface for Platform {
-    fn searcher(
-        kind: Kind,
-    ) -> Option<Box<dyn Notifier<Event = Found> + Unpin>> {
-        Searcher::new(kind).map(
-            |x| -> Box<dyn Notifier<Event = Found> + Unpin> { Box::new(x) },
-        )
+    type Searcher = Searcher;
+
+    fn searcher(kind: Kind) -> Option<Searcher> {
+        Searcher::new(kind)
     }
 
     fn open(found: Found, events: Events) -> Result<Device, Found> {
@@ -60,12 +58,12 @@ impl Interface for Platform {
 
 impl Found {
     /// Open read and write non-blocking device
-    fn open_flags(self, read: bool, write: bool) -> Result<OwnedFd, Self> {
+    fn open_flags(mut self, read: bool, write: bool) -> Result<OwnedFd, Self> {
         if let Ok(file) = OpenOptions::new()
             .read(read)
             .write(write)
             .custom_flags(2048)
-            .open(&self.0)
+            .open(self.0.get_mut())
         {
             Ok(file.into())
         } else {
@@ -92,7 +90,7 @@ impl Found {
 // Searcher
 
 #[derive(Debug)]
-struct Searcher {
+pub(super) struct Searcher {
     path: &'static str,
     prefix: &'static str,
     device: Device,
@@ -152,7 +150,7 @@ impl Notifier for Searcher {
                 };
                 if let Some(file) = file.path().to_str() {
                     if name.starts_with(searcher.prefix) {
-                        return Ready(Found(file.to_string()));
+                        return Ready(Found(file.to_string().into()));
                     }
                 }
             }
@@ -189,7 +187,7 @@ impl Notifier for Searcher {
 
             if filename.starts_with(searcher.prefix) {
                 let path = format!("{}{filename}", searcher.path);
-                return Ready(Found(path));
+                return Ready(Found(path.into()));
             }
         }
 

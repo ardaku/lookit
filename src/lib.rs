@@ -59,7 +59,7 @@
 #[cfg_attr(not(target_os = "linux"), path = "mock.rs")]
 mod platform;
 
-use std::fmt;
+use std::{cell::Cell, fmt};
 
 use pasts::prelude::*;
 use smelling_salts::Device;
@@ -83,16 +83,17 @@ struct Platform;
 
 /// Interface should be implemented for each `Platform`
 trait Interface {
+    type Searcher: Notifier<Event = Found> + Send + Unpin;
+
     /// Create a searcher for a specific type of device
-    fn searcher(kind: Kind)
-        -> Option<Box<dyn Notifier<Event = Found> + Unpin>>;
+    fn searcher(kind: Kind) -> Option<Self::Searcher>;
 
     /// Try to watch a found device for both read+write events
     fn open(found: Found, events: Events) -> Result<Device, Found>;
 }
 
 /// Lookit [`Notifier`].  Lets you know when a device is [`Found`].
-pub struct Searcher(Option<Box<dyn Notifier<Event = Found> + Unpin>>);
+pub struct Searcher(Cell<Option<<Platform as Interface>::Searcher>>);
 
 impl fmt::Debug for Searcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -103,22 +104,22 @@ impl fmt::Debug for Searcher {
 impl Searcher {
     /// Create new future checking for input devices.
     pub fn with_input() -> Self {
-        Self(Platform::searcher(Kind::Input()))
+        Self(Platform::searcher(Kind::Input()).into())
     }
 
     /// Create new future checking for audio devices (speakers, microphones).
     pub fn with_audio() -> Self {
-        Self(Platform::searcher(Kind::Audio()))
+        Self(Platform::searcher(Kind::Audio()).into())
     }
 
     /// Create new future checking for MIDI devices.
     pub fn with_midi() -> Self {
-        Self(Platform::searcher(Kind::Midi()))
+        Self(Platform::searcher(Kind::Midi()).into())
     }
 
     /// Create new future checking for camera devices.
     pub fn with_camera() -> Self {
-        Self(Platform::searcher(Kind::Camera()))
+        Self(Platform::searcher(Kind::Camera()).into())
     }
 }
 
@@ -126,15 +127,25 @@ impl Notifier for Searcher {
     type Event = Found;
 
     fn poll_next(mut self: Pin<&mut Self>, task: &mut Task<'_>) -> Poll<Found> {
-        let Some(ref mut notifier) = &mut self.0 else { return Pending };
+        let Some(ref mut notifier) = self.0.get_mut() else { return Pending };
 
         Pin::new(notifier).poll_next(task)
     }
 }
 
 /// Device found by the [`Searcher`] notifier.
-#[derive(Debug)]
-pub struct Found(String);
+pub struct Found(Cell<String>);
+
+impl fmt::Debug for Found {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let path = self.0.take();
+
+        f.debug_struct("Found").field("path", &path).finish()?;
+        self.0.set(path);
+
+        Ok(())
+    }
+}
 
 impl Found {
     /// Connect to device (input + output)
