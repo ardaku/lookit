@@ -14,7 +14,7 @@ keywords = ["async", "cross-platform", "device"]
 readme = "README.md"
 
 [dependencies.pasts]
-version = "0.13"
+version = "0.14"
 
 [dependencies.smelling_salts]
 version = "0.11"
