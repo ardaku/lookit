@@ -134,7 +134,7 @@ impl Searcher {
     }
 }
 
-impl Notifier for Searcher {
+impl Notify for Searcher {
     type Event = Found;
 
     fn poll_next(self: Pin<&mut Self>, task: &mut Task<'_>) -> Poll<Found> {

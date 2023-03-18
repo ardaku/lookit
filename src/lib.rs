@@ -11,7 +11,7 @@
 //! use pasts::prelude::*;
 //!
 //! #[async_main::async_main]
-//! async fn main(_spawner: impl Spawn) {
+//! async fn main(_spawner: impl async_main::Spawn) {
 //!     let mut searcher = Searcher::with_camera();
 //!     loop {
 //!         let file = searcher.next().await;
@@ -83,7 +83,7 @@ struct Platform;
 
 /// Interface should be implemented for each `Platform`
 trait Interface {
-    type Searcher: Notifier<Event = Found> + Send + Unpin;
+    type Searcher: Notify<Event = Found> + Send + Unpin;
 
     /// Create a searcher for a specific type of device
     fn searcher(kind: Kind) -> Option<Self::Searcher>;
@@ -123,7 +123,7 @@ impl Searcher {
     }
 }
 
-impl Notifier for Searcher {
+impl Notify for Searcher {
     type Event = Found;
 
     fn poll_next(mut self: Pin<&mut Self>, task: &mut Task<'_>) -> Poll<Found> {

@@ -1,6 +1,6 @@
 [package]
 name = "lookit"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.66"
 license = "Apache-2.0 OR BSL-1.0 OR MIT"
@@ -14,13 +14,13 @@ keywords = ["async", "cross-platform", "device"]
 readme = "README.md"
 
 [dependencies.pasts]
-version = "0.13"
+version = "0.14"
 
 [dependencies.smelling_salts]
-version = "0.11"
+version = "0.12"
 
 [dev-dependencies.async_main]
-version = "0.2"
+version = "0.3"
 features = ["pasts"]
 
 # [patch.crates-io]
