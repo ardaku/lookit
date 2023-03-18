@@ -92,7 +92,7 @@ trait Interface {
     fn open(found: Found, events: Events) -> Result<Device, Found>;
 }
 
-/// Lookit [`Notifier`].  Lets you know when a device is [`Found`].
+/// Lookit [`Notify`].  Lets you know when a device is [`Found`].
 pub struct Searcher(Cell<Option<<Platform as Interface>::Searcher>>);
 
 impl fmt::Debug for Searcher {
