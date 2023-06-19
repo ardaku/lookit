@@ -3,7 +3,7 @@ use pasts::prelude::*;
 
 #[async_main::async_main]
 async fn main(_spawner: impl async_main::Spawn) {
-    let mut searcher = Searcher::with_camera();
+    let mut searcher = Searcher::with_midi();
     loop {
         let file = searcher.next().await;
 

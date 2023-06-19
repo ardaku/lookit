@@ -2,10 +2,10 @@ use std::{
     ffi::CString,
     fs::{OpenOptions, ReadDir},
     io::Read,
-    mem,
+    mem::{self, MaybeUninit},
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
-        raw::{c_char, c_int},
+        raw::{c_char, c_int, c_uint, c_ulong},
         unix::fs::OpenOptionsExt,
     },
 };
@@ -95,6 +95,7 @@ pub(super) struct Searcher {
     prefix: &'static str,
     device: Device,
     read_dir: std::io::Result<ReadDir>,
+    buffer: Vec<u8>,
 }
 
 impl Searcher {
@@ -110,27 +111,71 @@ impl Searcher {
     }
 
     fn with(path: &'static str, prefix: &'static str) -> Option<Self> {
-        let listen = unsafe { inotify_init1(0o2004000) };
+        // https://github.com/torvalds/linux/blob/dbad9ce9397ef7f891b4ff44bad694add673c1a1/include/uapi/linux/inotify.h#L29
+
+        const IN_NONBLOCK: c_int = 0o4000;
+        const IN_CLOEXEC: c_int = 0o2000000;
+
+        const IN_ATTRIB: u32 = 0x004;
+        const IN_CREATE: u32 = 0x100;
+        const IN_DELETE: u32 = 0x200;
+
+        let listen = unsafe { inotify_init1(IN_NONBLOCK | IN_CLOEXEC) };
         assert_ne!(-1, listen); // The only way this fails is some kind of OOM
         let listen = unsafe { OwnedFd::from_raw_fd(listen) };
 
         let dir = CString::new(path).unwrap();
-        if unsafe { inotify_add_watch(listen.as_raw_fd(), dir.into_raw(), 4) }
-            == -1
+        if unsafe {
+            inotify_add_watch(
+                listen.as_raw_fd(),
+                dir.as_c_str().as_ptr(),
+                IN_ATTRIB | IN_CREATE | IN_DELETE,
+            )
+        } == -1
         {
             return None;
         }
 
         let read_dir = std::fs::read_dir(path);
         let device = Device::new(listen, Watch::INPUT);
+        let buffer = Vec::new();
         let connector = Self {
             device,
             path,
             prefix,
             read_dir,
+            buffer,
         };
 
         Some(connector)
+    }
+
+    fn find(&mut self) -> Option<Found> {
+        if self.buffer.is_empty() {
+            return None;
+        }
+
+        let begin: [u8; mem::size_of::<InotifyEv>()] = self.buffer
+            [..mem::size_of::<InotifyEv>()]
+            .try_into()
+            .unwrap();
+        let inotify_ev: InotifyEv = unsafe { mem::transmute(begin) };
+        let len = inotify_ev.len.try_into().unwrap_or(usize::MAX);
+        let bytes = &self.buffer[mem::size_of::<InotifyEv>()..][..len];
+        let bytes = bytes.split(|n| *n == b'\0').next().unwrap_or_default();
+        let filename = String::from_utf8_lossy(bytes);
+
+        if filename.starts_with(self.prefix) {
+            let path = format!("{}{filename}", self.path);
+
+            self.buffer.drain(..mem::size_of::<InotifyEv>() + len);
+
+            return Some(Found(path.into()));
+        }
+
+        self.buffer.drain(..mem::size_of::<InotifyEv>() + len);
+
+        self.find()
     }
 }
 
@@ -160,34 +205,34 @@ impl Notify for Searcher {
             ));
         }
 
+        if let Some(found) = searcher.find() {
+            return Ready(found);
+        }
+
         // Check for ready file descriptor.
         while let Ready(()) = Pin::new(&mut searcher.device).poll_next(task) {
-            let mut bytes = [0; mem::size_of::<InotifyEv>()];
+            // https://github.com/torvalds/linux/blob/dbad9ce9397ef7f891b4ff44bad694add673c1a1/include/uapi/asm-generic/ioctls.h#L46
+            const FIONREAD: c_ulong = 0x541B;
+            extern "C" {
+                fn ioctl(fd: RawFd, req: c_ulong, len: *mut c_uint) -> c_int;
+            }
+            let mut len = MaybeUninit::uninit();
+            let ret = unsafe {
+                ioctl(searcher.device.as_raw_fd(), FIONREAD, len.as_mut_ptr())
+            };
+            assert!(ret >= 0);
+            let len = unsafe { len.assume_init() };
 
-            if let Err(e) = searcher.device.read_exact(&mut bytes) {
+            searcher
+                .buffer
+                .resize(len.try_into().unwrap_or(usize::MAX), 0);
+
+            if let Err(e) = searcher.device.read_exact(&mut searcher.buffer) {
                 dbg!(e);
-                continue;
             }
 
-            let inotify_ev: InotifyEv = unsafe { mem::transmute(bytes) };
-            let len = inotify_ev.len.try_into().unwrap_or(usize::MAX);
-            let mut bytes = vec![0; len];
-
-            if let Err(e) = searcher.device.read_exact(bytes.as_mut_slice()) {
-                dbg!(e);
-                continue;
-            }
-
-            let bytes = bytes
-                .as_slice()
-                .split(|n| *n == b'\0')
-                .next()
-                .unwrap_or_default();
-            let filename = String::from_utf8_lossy(bytes);
-
-            if filename.starts_with(searcher.prefix) {
-                let path = format!("{}{filename}", searcher.path);
-                return Ready(Found(path.into()));
+            if let Some(found) = searcher.find() {
+                return Ready(found);
             }
         }
 
